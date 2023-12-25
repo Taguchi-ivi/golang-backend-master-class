@@ -35,8 +35,7 @@ COMMENT ON COLUMN "entries"."amount" IS 'cant be negative or positive';
 
 COMMENT ON COLUMN "transfers"."amount" IS 'must be positive';
 
+-- 外部キーの制約によりエラーになるため、コメントアウト
 ALTER TABLE "entries" ADD FOREIGN KEY ("account_id") REFERENCES "accounts" ("id");
-
 ALTER TABLE "transfers" ADD FOREIGN KEY ("from_account_id") REFERENCES "accounts" ("id");
-
 ALTER TABLE "transfers" ADD FOREIGN KEY ("to_account_id") REFERENCES "accounts" ("id");
