@@ -15,6 +15,6 @@ func HashPassword(password string) (string, error) {
 }
 
 // passwordがhashedPasswordと一致するかを確認する
-func checkPassword(password, hashedPassword string) error {
+func CheckPassword(password, hashedPassword string) error {
 	return bcrypt.CompareHashAndPassword([]byte(hashedPassword), []byte(password))
 }
