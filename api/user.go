@@ -2,11 +2,14 @@ package api
 
 import (
 	"database/sql"
+	db "input-backend-master-class/db/generated"
 	"input-backend-master-class/util"
+	"input-backend-master-class/worker"
 	"net/http"
 	"time"
 
 	"github.com/gin-gonic/gin"
+	"github.com/hibiken/asynq"
 )
 
 type createUserRequest struct {
@@ -57,14 +60,28 @@ func (server *Server) createUser(ctx *gin.Context) {
 		return
 	}
 
-	arg := db.CreateUserParams{
-		Username:       req.Username,
-		HashedPassword: hashedPassword,
-		FullName:       req.FullName,
-		Email:          req.Email,
+	arg := db.CreateUserTxParams{
+		CreateUserParams: db.CreateUserParams{
+			Username:       req.Username,
+			HashedPassword: hashedPassword,
+			FullName:       req.FullName,
+			Email:          req.Email,
+		},
+		AfterCreate: func(user db.User) error {
+			taskPayload := &worker.PayloadSendVerifyEmail{
+				UserName: user.Username,
+			}
+			opts := []asynq.Option{
+				asynq.MaxRetry(10),
+				asynq.Timeout(10 * time.Second),
+				asynq.Queue(worker.QueueCritical),
+			}
+			return server.taskDistributor.DistributeTaskSendVerifyEmail(ctx, taskPayload, opts...)
+		},
 	}
 
-	user, err := server.store.CreateUser(ctx, arg)
+	// user, err := server.store.CreateUser(ctx, arg)
+	txResult, err := server.store.CreateUserTx(ctx, arg)
 	if err != nil {
 		if db.ErrorCode(err) == db.UniqueViolation {
 			ctx.JSON(http.StatusForbidden, errorResponse(err))
@@ -74,7 +91,24 @@ func (server *Server) createUser(ctx *gin.Context) {
 		return
 	}
 
-	rsp := newUserResponse(user)
+	// ここでtaskを作成する
+	// userの作成とtaskはトランザクションで対応する必要がある。 失敗したらrollbackする
+	// taskPayload := &worker.PayloadSendVerifyEmail{
+	// 	UserName: user.Username,
+	// }
+	// opts := []asynq.Option{
+	// 	asynq.MaxRetry(10),
+	// 	asynq.Timeout(10 * time.Second),
+	// 	asynq.Queue(worker.QueueCritical),
+	// }
+	// err = server.taskDistributor.DistributeTaskSendVerifyEmail(ctx, taskPayload, opts...)
+	// if err != nil {
+	// 	// return nil, status.Errorf(codes.Internal, "failed to distribute task: %v", err)
+	// 	ctx.JSON(http.StatusInternalServerError, errorResponse(err))
+	// 	return
+	// }
+
+	rsp := newUserResponse(txResult.User)
 	ctx.JSON(http.StatusOK, rsp)
 }
 

@@ -4,9 +4,12 @@ import (
 	"context"
 	"input-backend-master-class/api"
 	db "input-backend-master-class/db/generated"
+	"input-backend-master-class/mail"
 	"input-backend-master-class/util"
+	"input-backend-master-class/worker"
 	"log"
 
+	"github.com/hibiken/asynq"
 	"github.com/jackc/pgx/v5"
 	_ "github.com/lib/pq"
 )
@@ -23,7 +26,15 @@ func main() {
 	}
 
 	store := db.NewStore(conn)
-	server, err := api.NewServer(config, &store)
+
+	redisOpt := asynq.RedisClientOpt{
+		Addr: config.RedisAddress,
+	}
+
+	taskDistributor := worker.NewRedisTaskDistributor(redisOpt)
+	go runTaskProcessor(config, redisOpt, store)
+
+	server, err := api.NewServer(config, &store, taskDistributor)
 	if err != nil {
 		log.Fatal("cannot create server:", err)
 	}
@@ -33,4 +44,13 @@ func main() {
 		log.Fatal("cannot start server:", err)
 	}
 
+}
+
+func runTaskProcessor(config util.Config, redisOpt asynq.RedisClientOpt, store db.Store) {
+	mailer := mail.NewGmailSender(config.EmailSenderName, config.EmailSenderAddress, config.EmailSenderPassword)
+	taskProcessor := worker.NewRedisTaskProcessor(redisOpt, store, mailer)
+	err := taskProcessor.Start()
+	if err != nil {
+		log.Fatal("cannot start task processor:", err)
+	}
 }
